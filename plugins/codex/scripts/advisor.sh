@@ -31,7 +31,7 @@ if [ -n "$QUESTION" ]; then
 Specific question from the caller, weigh it heavily: $QUESTION"
 fi
 
-exec codex exec resume "$THREAD" \
+codex exec resume "$THREAD" \
   -m "$MODEL" \
   -c model_reasoning_effort="$EFFORT" \
   -c sandbox_mode="read-only" \
