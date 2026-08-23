@@ -1,19 +1,25 @@
 ---
-description: Ask Codex to review the current Claude session's approach, like the built-in advisor
-argument-hint: "[--background|--wait] [a specific question for the advisor]"
+description: Ask an external model to review the current Claude session's approach, like the built-in advisor
+argument-hint: "[--background|--wait] [--backend auto|codex|agy] [a specific question for the advisor]"
 disable-model-invocation: true
-allowed-tools: Bash(sh:*), Bash(node:*), Bash(codex:*)
+allowed-tools: Bash(sh:*), Bash(node:*), Bash(codex:*), Bash(agy:*)
 ---
 
-Hand the current Claude Code session to Codex and return its advice.
+Hand the current Claude Code session to an external model and return its advice.
 
 Raw slash-command arguments:
 `$ARGUMENTS`
 
 How it works:
-- `scripts/advisor.sh` transfers this session's transcript into a Codex thread (`codex-companion.mjs transfer`), then resumes that thread with the advisor prompt.
-- Codex sees the whole session: the task, every tool call, every result.
-- The run is read-only. Codex must not change files.
+- `scripts/advisor.sh` runs with `--role advisor`.
+- With Codex it transfers this session's transcript into a Codex thread (`codex-companion.mjs transfer`) and resumes that thread with the advisor prompt, so Codex reads the real session.
+- With agy it sends a condensed transcript (`scripts/transcript-digest.mjs`) instead, since agy cannot import a Claude session. Tool output is truncated, so agy sees less detail than Codex does.
+- Either way the run is read-only and the model must not change files.
+
+Backend selection:
+- `auto` (default) picks Codex, falls back to agy, and exits 3 if neither is installed.
+- Exit 3 means there is no external advisor. Say so and use the built-in `advisor` tool alone.
+- Force one with `--backend codex` or `--backend agy`.
 
 Core constraint:
 - This command is advice-only. Do not fix anything, apply patches, or announce that you are about to make changes.
@@ -39,11 +45,15 @@ Bash({
   run_in_background: true
 })
 ```
-- After launching, tell the user: "Codex advisor started in the background."
+- After launching, tell the user: "advisor started in the background."
 
 Model selection:
-- Defaults to `gpt-5.6-sol` at `high` reasoning effort.
-- Override per run with the `CODEX_ADVISOR_MODEL` and `CODEX_ADVISOR_EFFORT` environment variables.
+- Codex defaults to `gpt-5.6-sol` at `high` reasoning effort. Override with `CODEX_ADVISOR_MODEL` and `CODEX_ADVISOR_EFFORT`.
+- agy runs at `high` effort on its own default model.
 
 Failure handling:
-- If the transfer step reports that Codex is missing, unauthenticated, or too old for session transfer, stop and tell the user to run `/codex:setup` or update Codex.
+- Exit 3: no backend installed. Fall back to the built-in advisor.
+- If Codex reports that it is unauthenticated or too old for session transfer, tell the user to run `/codex:setup` or update Codex, and retry with `--backend agy`.
+
+Sending the session outside:
+- Codex receives the full transcript, agy receives the condensed one. Invoking this command is consent for that turn.
