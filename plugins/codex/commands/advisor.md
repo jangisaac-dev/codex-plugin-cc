@@ -42,7 +42,7 @@ Bash({
 - After launching, tell the user: "Codex advisor started in the background."
 
 Model selection:
-- Defaults to `gpt-5.6-sol` at `medium` reasoning effort.
+- Defaults to `gpt-5.6-sol` at `high` reasoning effort.
 - Override per run with the `CODEX_ADVISOR_MODEL` and `CODEX_ADVISOR_EFFORT` environment variables.
 
 Failure handling:
