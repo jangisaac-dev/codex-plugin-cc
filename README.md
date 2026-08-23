@@ -11,6 +11,8 @@ they already have.
 
 - `/codex:review` for a normal read-only Codex review
 - `/codex:adversarial-review` for a steerable challenge review
+- `/codex:advisor` for advice from an external model on the current Claude session
+- `/codex:advisor-chain` to run an external advisor, apply supported feedback, and consult Claude's built-in advisor
 - `/codex:rescue`, `/codex:transfer`, `/codex:status`, `/codex:result`, and `/codex:cancel` to delegate work, hand off sessions, and manage background jobs
 
 ## Requirements
@@ -122,6 +124,35 @@ Examples:
 ```
 
 This command is read-only. It does not fix code.
+
+### `/codex:advisor`
+
+Hands the current Claude session to an external model for advice without applying changes.
+
+The runner has two roles: `advisor` reviews the session's approach, while `review` judges an anonymized disagreement. In automatic backend selection, `advisor` tries Codex and then agy; `review` tries agy and then Codex. A backend that is installed but fails also falls through to the next one. Use `--backend auto|codex|agy` to select a backend, or `--exclude codex|agy` to keep the judge from being a party to the disagreement. Exit 3 means no backend succeeded. Flags must come before the question text.
+
+Codex runs in its read-only sandbox. agy has no enforced read-only mode, so it runs from an empty throwaway directory instead.
+
+Examples:
+
+```bash
+/codex:advisor
+/codex:advisor --backend agy question the current approach
+/codex:advisor --background focus on unverified assumptions
+```
+
+### `/codex:advisor-chain`
+
+Runs the external advisor first, applies each supported point with verification, and then calls Claude's built-in advisor.
+
+If the two advisors recommend opposite actions from the same evidence, it sends anonymized positions to an independent judge. The external advisor's backend is excluded from judging; if no independent backend succeeds, the command reports the disagreement for you to decide. You can add focus text for the advisors.
+
+Examples:
+
+```bash
+/codex:advisor-chain
+/codex:advisor-chain focus on rollback safety and race conditions
+```
 
 ### `/codex:rescue`
 
