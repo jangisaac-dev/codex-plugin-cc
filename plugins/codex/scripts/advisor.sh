@@ -1,38 +1,34 @@
 #!/bin/sh
 # /codex:advisor - transfer the current Claude session into a Codex thread and
-# ask Codex to review the approach, the way Claude Code's built-in advisor does.
+# ask Codex to review the approach, the way the built-in advisor does.
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MODEL="${CODEX_ADVISOR_MODEL:-gpt-5.6-sol}"
 EFFORT="${CODEX_ADVISOR_EFFORT:-medium}"
 
-THREAD="$(node "$ROOT/scripts/codex-companion.mjs" transfer --json \
+SOURCE="${CODEX_COMPANION_TRANSCRIPT_PATH:-}"
+if [ -z "$SOURCE" ] || [ ! -f "$SOURCE" ]; then
+  echo "Could not locate the current Claude transcript (CODEX_COMPANION_TRANSCRIPT_PATH)." >&2
+  exit 1
+fi
+
+# Codex matches an imported session by content hash, and the live transcript keeps
+# growing while the import runs, so transferring the same file twice finds no
+# thread the second time. Import a frozen snapshot instead. It has to sit under
+# ~/.claude/projects because the companion refuses sources outside that tree.
+SNAPSHOT="$(dirname "$SOURCE")/codex-advisor-$$.jsonl"
+cp "$SOURCE" "$SNAPSHOT"
+trap 'rm -f "$SNAPSHOT"' EXIT INT TERM
+
+THREAD="$(node "$ROOT/scripts/codex-companion.mjs" transfer --json --source "$SNAPSHOT" \
   | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).threadId')"
 
-PROMPT="$(cat <<'EOF'
-You are the advisor for the Claude Code session you just received.
-The full transcript above is the session: the task, every tool call, every result, and Claude's reasoning.
-
-Review the work in progress and answer:
-1. Is the current approach right? If it is heading somewhere wrong or wasteful, say so first and directly.
-2. Which assumptions are unstated or unverified, and what evidence in the transcript contradicts them?
-3. What has been missed: a file, a constraint, a failure mode, a simpler path already available.
-4. What are the concrete next steps, in order, with the check that proves each one worked.
-
-Rules:
-- Read-only. Do not edit, create, or run anything that changes state.
-- Be specific and cite file paths, commands, or transcript facts. No generic advice.
-- If the approach is sound, say so plainly and keep the answer short.
-- Answer in Korean.
-EOF
-)"
-
+PROMPT="$(cat "$ROOT/prompts/advisor.md")"
 QUESTION="$*"
 if [ -n "$QUESTION" ]; then
   PROMPT="$PROMPT
-
-Caller's specific question, weigh it heavily: $QUESTION"
+Specific question from the caller, weigh it heavily: $QUESTION"
 fi
 
 exec codex exec resume "$THREAD" \
