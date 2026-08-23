@@ -5,7 +5,7 @@ set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MODEL="${CODEX_ADVISOR_MODEL:-gpt-5.6-sol}"
-EFFORT="${CODEX_ADVISOR_EFFORT:-medium}"
+EFFORT="${CODEX_ADVISOR_EFFORT:-high}"
 
 SOURCE="${CODEX_COMPANION_TRANSCRIPT_PATH:-}"
 if [ -z "$SOURCE" ] || [ ! -f "$SOURCE" ]; then
