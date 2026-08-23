@@ -3,47 +3,47 @@
 #
 #   --role advisor  (default)  review the session's approach; needs the transcript
 #   --role review              judge an anonymized disagreement; must NOT see the transcript
-#   --backend auto|codex|agy   auto picks codex for advisor, agy for review, then falls back
+#   --backend auto|codex|agy   auto tries codex then agy for advisor, agy then codex for review
+#   --exclude codex|agy        never use this backend (pass the advisor's backend to the judge)
 #
-# Exit 3 means no backend is available and the caller should fall back to the
-# built-in advisor alone.
+# A backend that is installed but fails (unauthenticated, offline, unsupported
+# model) falls through to the next one. Exit 3 means every candidate was missing
+# or failed, and the caller should fall back to the built-in advisor alone.
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ROLE="advisor"
 BACKEND="auto"
+EXCLUDE=""
 MODEL="${CODEX_ADVISOR_MODEL:-gpt-5.6-sol}"
 EFFORT="${CODEX_ADVISOR_EFFORT:-high}"
 
+require_value() {
+  [ -n "${2:-}" ] || { echo "Missing value for $1." >&2; exit 1; }
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
-    --role) ROLE="$2"; shift 2 ;;
-    --backend) BACKEND="$2"; shift 2 ;;
+    --role) require_value "$1" "${2:-}"; ROLE="$2"; shift 2 ;;
+    --backend) require_value "$1" "${2:-}"; BACKEND="$2"; shift 2 ;;
+    --exclude) require_value "$1" "${2:-}"; EXCLUDE="$2"; shift 2 ;;
     --) shift; break ;;
     *) break ;;
   esac
 done
 
-case "$ROLE" in
-  advisor|review) ;;
-  *) echo "Unknown role: $ROLE (use advisor or review)." >&2; exit 1 ;;
-esac
+case "$ROLE" in advisor|review) ;; *) echo "Unknown role: $ROLE (advisor, review)." >&2; exit 1 ;; esac
+case "$BACKEND" in auto|codex|agy) ;; *) echo "Unknown backend: $BACKEND (auto, codex, agy)." >&2; exit 1 ;; esac
+case "$EXCLUDE" in ""|codex|agy) ;; *) echo "Unknown backend to exclude: $EXCLUDE." >&2; exit 1 ;; esac
 
 has() { command -v "$1" >/dev/null 2>&1; }
 
 if [ "$BACKEND" = auto ]; then
-  if [ "$ROLE" = advisor ]; then
-    # Codex first: it imports the real session instead of a digest of it.
-    if has codex; then BACKEND=codex; elif has agy; then BACKEND=agy; else BACKEND=none; fi
-  else
-    # agy first: for a tie-break the judge must not be one of the two parties.
-    if has agy; then BACKEND=agy; elif has codex; then BACKEND=codex; else BACKEND=none; fi
-  fi
-fi
-
-if [ "$BACKEND" = none ] || ! has "$BACKEND"; then
-  echo "No external $ROLE backend available (codex, agy). Fall back to the built-in advisor." >&2
-  exit 3
+  # advisor: codex first, it imports the real session instead of a digest of it.
+  # review:  agy first, a judge must not be one of the two parties.
+  if [ "$ROLE" = advisor ]; then CANDIDATES="codex agy"; else CANDIDATES="agy codex"; fi
+else
+  CANDIDATES="$BACKEND"
 fi
 
 QUESTION="$*"
@@ -64,58 +64,77 @@ Specific question from the caller, weigh it heavily: $QUESTION"
   fi
 fi
 
-echo "[advisor] role=$ROLE backend=$BACKEND" >&2
-
-if [ "$ROLE" = review ]; then
-  if [ "$BACKEND" = agy ]; then
-    # No repo context needed, so run from an empty throwaway directory: agy has no
-    # read-only mode and this keeps it away from any working tree.
-    WORKDIR="$(mktemp -d)"
-    trap 'rm -rf "$WORKDIR"' EXIT INT TERM
-    cd "$WORKDIR"
-    agy --effort high --sandbox -p "$PROMPT"
-  else
-    echo "[advisor] warning: judging with codex, which authored one of the positions. Treat it as a rebuttal, not a verdict." >&2
-    # Fresh thread on purpose - no transfer, so it cannot recognize its own answer.
-    codex exec -m "$MODEL" -c model_reasoning_effort="$EFFORT" -s read-only \
-      --skip-git-repo-check "$PROMPT"
-  fi
-  exit $?
-fi
-
-SOURCE="${CODEX_COMPANION_TRANSCRIPT_PATH:-}"
-if [ -z "$SOURCE" ] || [ ! -f "$SOURCE" ]; then
-  echo "Could not locate the current Claude transcript (CODEX_COMPANION_TRANSCRIPT_PATH)." >&2
-  exit 1
-fi
-
-if [ "$BACKEND" = agy ]; then
-  DIGEST="$(node "$ROOT/scripts/transcript-digest.mjs" "$SOURCE")"
-  WORKDIR="$(mktemp -d)"
-  trap 'rm -rf "$WORKDIR"' EXIT INT TERM
-  cd "$WORKDIR"
-  agy --effort high --sandbox -p "$PROMPT
+run_agy() {
+  # agy has no enforced read-only mode, and none of these runs need repo context,
+  # so run from an empty throwaway directory.
+  workdir="$(mktemp -d)"
+  if [ "$ROLE" = advisor ]; then
+    digest="$(node "$ROOT/scripts/transcript-digest.mjs" "$SOURCE")"
+    text="$PROMPT
 
 The session transcript follows, condensed. Tool output is truncated.
 ---
-$DIGEST"
-  exit $?
+$digest"
+  else
+    text="$PROMPT"
+  fi
+  ( cd "$workdir" && agy --effort high --sandbox -p "$text" )
+  status=$?
+  rm -rf "$workdir"
+  return $status
+}
+
+run_codex() {
+  if [ "$ROLE" = review ]; then
+    echo "[advisor] note: codex is judging. If it also wrote one of the positions, treat this as a rebuttal, not a verdict." >&2
+    # Fresh thread, empty directory, no user config or rules: the judge should see
+    # the two positions and nothing else.
+    workdir="$(mktemp -d)"
+    ( cd "$workdir" && codex exec -m "$MODEL" -c model_reasoning_effort="$EFFORT" \
+        -s read-only --skip-git-repo-check --ignore-user-config --ignore-rules "$PROMPT" )
+    status=$?
+    rm -rf "$workdir"
+    return $status
+  fi
+
+  # Codex matches an imported session by content hash, and the live transcript keeps
+  # growing while the import runs, so transferring the same file twice finds no
+  # thread the second time. Import a frozen snapshot instead. It has to sit under
+  # ~/.claude/projects because the companion refuses sources outside that tree.
+  snapshot="$(dirname "$SOURCE")/codex-advisor-$$.jsonl"
+  cp "$SOURCE" "$snapshot"
+  status=0
+  thread="$(node "$ROOT/scripts/codex-companion.mjs" transfer --json --source "$snapshot" \
+    | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).threadId')" || status=$?
+  if [ $status -eq 0 ] && [ -n "$thread" ]; then
+    codex exec resume "$thread" -m "$MODEL" -c model_reasoning_effort="$EFFORT" \
+      -c sandbox_mode="read-only" --skip-git-repo-check "$PROMPT" || status=$?
+  else
+    status=1
+  fi
+  rm -f "$snapshot"
+  return $status
+}
+
+if [ "$ROLE" = advisor ]; then
+  SOURCE="${CODEX_COMPANION_TRANSCRIPT_PATH:-}"
+  if [ -z "$SOURCE" ] || [ ! -f "$SOURCE" ]; then
+    echo "Could not locate the current Claude transcript (CODEX_COMPANION_TRANSCRIPT_PATH)." >&2
+    exit 1
+  fi
 fi
 
-# Codex matches an imported session by content hash, and the live transcript keeps
-# growing while the import runs, so transferring the same file twice finds no
-# thread the second time. Import a frozen snapshot instead. It has to sit under
-# ~/.claude/projects because the companion refuses sources outside that tree.
-SNAPSHOT="$(dirname "$SOURCE")/codex-advisor-$$.jsonl"
-cp "$SOURCE" "$SNAPSHOT"
-trap 'rm -f "$SNAPSHOT"' EXIT INT TERM
+for candidate in $CANDIDATES; do
+  [ "$candidate" = "$EXCLUDE" ] && continue
+  has "$candidate" || continue
+  echo "[advisor] role=$ROLE backend=$candidate" >&2
+  if [ "$candidate" = agy ]; then
+    run_agy && exit 0
+  else
+    run_codex && exit 0
+  fi
+  echo "[advisor] $candidate failed for role=$ROLE, trying the next backend." >&2
+done
 
-THREAD="$(node "$ROOT/scripts/codex-companion.mjs" transfer --json --source "$SNAPSHOT" \
-  | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).threadId')"
-
-codex exec resume "$THREAD" \
-  -m "$MODEL" \
-  -c model_reasoning_effort="$EFFORT" \
-  -c sandbox_mode="read-only" \
-  --skip-git-repo-check \
-  "$PROMPT"
+echo "No external $ROLE backend succeeded (candidates: $CANDIDATES, excluded: ${EXCLUDE:-none}). Fall back to the built-in advisor." >&2
+exit 3

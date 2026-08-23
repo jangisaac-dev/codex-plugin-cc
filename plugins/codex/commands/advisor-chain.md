@@ -19,7 +19,8 @@ Step 1 - external advisor:
 sh "${CLAUDE_PLUGIN_ROOT}/scripts/advisor.sh" "$ARGUMENTS"
 ```
 - Show the output to the user verbatim before doing anything else.
-- Exit 3 means neither Codex nor agy is installed. Say so, skip to step 3, and note in the final report that only one reviewer ran.
+- The script prints `[advisor] role=advisor backend=<name>` on stderr. Remember that name - step 4 needs it.
+- Exit 3 means every backend was missing or failed. Say so, skip to step 3, and note in the final report that only one reviewer ran.
 
 Step 2 - apply what holds:
 - Work through the advisor's points one by one.
@@ -37,12 +38,12 @@ Step 4 - conflict branch (usually skipped):
 - When it does branch:
   1. Write both positions yourself as `주장 / 근거 / 검증 결과 / 위험`. Do not ask a model to summarize them - that only adds a distortion step.
   2. Strip every attribution. No model names, no "the first reviewer said".
-  3. Send the anonymized pair to the judge, which gets no transcript:
+  3. Send the anonymized pair to the judge, barring whichever backend gave the advice in step 1, so the judge is never a party to the disagreement:
      ```bash
-     printf '%s' "<anonymized positions>" | sh "${CLAUDE_PLUGIN_ROOT}/scripts/advisor.sh" --role review
+     printf '%s' "<anonymized positions>" | sh "${CLAUDE_PLUGIN_ROOT}/scripts/advisor.sh" --role review --exclude <step 1 backend>
      ```
-  4. Exit 3, or a judge that says the evidence cannot decide: report the difference to the user and let them choose.
-  5. If the judge had to be Codex (agy missing), the script says so on stderr. Treat that verdict as a rebuttal, not a decision, because Codex authored one of the positions.
+  4. Exit 3 here usually means only one backend exists on this machine, so no independent judge is available. Do not drop the exclusion to get a verdict. Report the difference to the user and let them choose.
+  5. Same when the judge says the evidence cannot decide: hand the difference to the user.
 
 Step 5 - report:
 - Lead with what changed as a result of the reviews.

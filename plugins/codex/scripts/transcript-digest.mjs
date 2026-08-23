@@ -21,6 +21,7 @@ function clip(value, limit) {
 }
 
 const lines = [];
+const userLines = [];
 for (const raw of fs.readFileSync(sourcePath, "utf8").split("\n")) {
   if (!raw.trim()) {
     continue;
@@ -39,9 +40,11 @@ for (const raw of fs.readFileSync(sourcePath, "utf8").split("\n")) {
   const blocks = Array.isArray(content) ? content : [{ type: "text", text: content }];
   for (const block of blocks) {
     if (block?.type === "text" && block.text?.trim()) {
-      lines.push(`[${role}] ${clip(block.text.trim(), MAX_TEXT_CHARS)}`);
-    } else if (block?.type === "thinking" && block.thinking?.trim()) {
-      lines.push(`[${role} thinking] ${clip(block.thinking.trim(), MAX_TEXT_CHARS)}`);
+      const line = `[${role}] ${clip(block.text.trim(), MAX_TEXT_CHARS)}`;
+      lines.push(line);
+      if (role === "user") {
+        userLines.push(line);
+      }
     } else if (block?.type === "tool_use") {
       lines.push(`[tool ${block.name}] ${clip(block.input, MAX_TOOL_CHARS)}`);
     } else if (block?.type === "tool_result") {
@@ -52,6 +55,9 @@ for (const raw of fs.readFileSync(sourcePath, "utf8").split("\n")) {
 
 let digest = lines.join("\n");
 if (digest.length > MAX_TOTAL_CHARS) {
-  digest = `[earlier turns dropped to fit the size limit]\n${digest.slice(-MAX_TOTAL_CHARS)}`;
+  // Keep every user message: the original request usually sits at the very top,
+  // and tail-truncation alone would drop it. Recent turns fill the rest.
+  const asked = `모든 사용자 메시지 (전체):\n${userLines.join("\n")}\n\n최근 대화 (앞부분 생략됨):\n`;
+  digest = asked + digest.slice(-Math.max(0, MAX_TOTAL_CHARS - asked.length));
 }
 process.stdout.write(digest);

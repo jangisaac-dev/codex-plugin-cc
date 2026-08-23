@@ -14,12 +14,13 @@ How it works:
 - `scripts/advisor.sh` runs with `--role advisor`.
 - With Codex it transfers this session's transcript into a Codex thread (`codex-companion.mjs transfer`) and resumes that thread with the advisor prompt, so Codex reads the real session.
 - With agy it sends a condensed transcript (`scripts/transcript-digest.mjs`) instead, since agy cannot import a Claude session. Tool output is truncated, so agy sees less detail than Codex does.
-- Either way the run is read-only and the model must not change files.
+- Codex runs in its read-only sandbox. agy has no enforced read-only mode, so it runs from an empty throwaway directory instead - that keeps it away from any working tree, but it cannot stop a write to an absolute path.
 
 Backend selection:
-- `auto` (default) picks Codex, falls back to agy, and exits 3 if neither is installed.
-- Exit 3 means there is no external advisor. Say so and use the built-in `advisor` tool alone.
-- Force one with `--backend codex` or `--backend agy`.
+- `auto` (default) tries Codex, then agy. A backend that is installed but fails - unauthenticated, offline, unsupported model - falls through to the next one.
+- Exit 3 means every candidate was missing or failed. Say so and use the built-in `advisor` tool alone.
+- Force one with `--backend codex` or `--backend agy`, or bar one with `--exclude codex`.
+- Flags come before the question text: `advisor.sh --backend agy "the question"`. Passing `$ARGUMENTS` as one string would make the flags part of the question.
 
 Core constraint:
 - This command is advice-only. Do not fix anything, apply patches, or announce that you are about to make changes.
