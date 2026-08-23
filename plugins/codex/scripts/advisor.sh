@@ -38,6 +38,15 @@ case "$EXCLUDE" in ""|codex|agy) ;; *) echo "Unknown backend to exclude: $EXCLUD
 
 has() { command -v "$1" >/dev/null 2>&1; }
 
+# The backends run for minutes, so an interrupt is the likely exit. Clean up from
+# a trap as well as inline, or a snapshot is left behind in ~/.claude/projects.
+cleanup() {
+  [ -n "${snapshot:-}" ] && rm -f "$snapshot"
+  [ -n "${workdir:-}" ] && rm -rf "$workdir"
+  return 0
+}
+trap cleanup EXIT INT TERM
+
 if [ "$BACKEND" = auto ]; then
   # advisor: codex first, it imports the real session instead of a digest of it.
   # review:  agy first, a judge must not be one of the two parties.
