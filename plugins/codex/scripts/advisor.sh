@@ -87,7 +87,7 @@ $digest"
   else
     text="$PROMPT"
   fi
-  ( cd "$workdir" && agy --effort high --sandbox -p "$text" )
+  ( cd "$workdir" && agy --model gemini-4-argon --effort high --sandbox -p "$text" )
   status=$?
   rm -rf "$workdir"
   return $status
