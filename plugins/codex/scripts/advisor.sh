@@ -15,8 +15,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ROLE="advisor"
 BACKEND="auto"
 EXCLUDE=""
-MODEL="${CODEX_ADVISOR_MODEL:-gpt-5.6-sol}"
-EFFORT="${CODEX_ADVISOR_EFFORT:-high}"
+MODEL="${CODEX_ADVISOR_MODEL:-gpt-6-astra}"
+EFFORT="${CODEX_ADVISOR_EFFORT:-xhigh}"
 
 require_value() {
   [ -n "${2:-}" ] || { echo "Missing value for $1." >&2; exit 1; }
