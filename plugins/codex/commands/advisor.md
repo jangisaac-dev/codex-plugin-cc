@@ -50,7 +50,7 @@ Bash({
 
 Model selection:
 - Codex defaults to `gpt-5.6-sol` at `high` reasoning effort. Override with `CODEX_ADVISOR_MODEL` and `CODEX_ADVISOR_EFFORT`.
-- agy runs at `high` effort on its own default model.
+- agy runs `gemini-3.8-flash` at `high` effort. Opt into Argon with `AGY_ADVISOR_MODEL=gemini-4-argon`.
 
 Failure handling:
 - Exit 3: no backend installed. Fall back to the built-in advisor.

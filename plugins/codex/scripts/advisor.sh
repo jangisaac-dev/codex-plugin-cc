@@ -17,6 +17,7 @@ BACKEND="auto"
 EXCLUDE=""
 MODEL="${CODEX_ADVISOR_MODEL:-gpt-6-astra}"
 EFFORT="${CODEX_ADVISOR_EFFORT:-xhigh}"
+AGY_MODEL="${AGY_ADVISOR_MODEL:-gemini-3.8-flash}"   # pinned to Flash; AGY_ADVISOR_MODEL=gemini-4-argon to opt in
 
 require_value() {
   [ -n "${2:-}" ] || { echo "Missing value for $1." >&2; exit 1; }
@@ -87,7 +88,7 @@ $digest"
   else
     text="$PROMPT"
   fi
-  ( cd "$workdir" && agy --model gemini-4-argon --effort high --sandbox -p "$text" )
+  ( cd "$workdir" && agy --model "$AGY_MODEL" --effort high --sandbox -p "$text" )
   status=$?
   rm -rf "$workdir"
   return $status
